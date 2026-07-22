@@ -1,3 +1,11 @@
+
+
+![Vicious Logo](assets/vicious-logo.png)
+
+
+
+© 2026 Love. All rights reserved.
+
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
 ## Getting Started
