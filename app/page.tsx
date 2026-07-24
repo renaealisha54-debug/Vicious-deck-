@@ -2,13 +2,23 @@
 
 import React, { useState, useRef } from "react";
 
-const SUITS = [
+const STANDARD_SUITS = [
   { symbol: "♠", color: "text-slate-900", name: "spades" },
   { symbol: "♥", color: "text-rose-600", name: "hearts" },
   { symbol: "♦", color: "text-rose-600", name: "diamonds" },
   { symbol: "♣", color: "text-slate-900", name: "clubs" },
 ];
-const RANKS = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"];
+const STANDARD_RANKS = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"];
+
+const MEANING_SUITS = [
+  { symbol: "♥", color: "text-rose-600", name: "hearts", theme: "Love", unit: "Weeks" },
+  { symbol: "♦", color: "text-rose-600", name: "diamonds", theme: "Hate", unit: "Days" },
+  { symbol: "♣", color: "text-slate-900", name: "clubs", theme: "Trust", unit: "Months" },
+  { symbol: "♠", color: "text-slate-900", name: "spades", theme: "Money", unit: "Years" },
+];
+const MEANING_RANKS = ["A", "K", "Q", "J", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"];
+
+const DICE_FACES = ["⚀", "⚁", "⚂", "⚃", "⚄", "⚅"];
 
 const CARD_W = 84;
 const CARD_H = 118;
@@ -18,18 +28,44 @@ const DECK_X = 30;
 const DECK_Y = BOARD_H / 2 - CARD_H / 2;
 const DOUBLE_CLICK_MS = 350;
 
+type DeckType = "standard" | "meaning";
 type Suit = { symbol: string; color: string; name: string };
-type DeckCard = { id: number; suit: Suit; rank: string };
+type DeckCard = {
+  id: number;
+  suit: Suit;
+  rank: string;
+  meaning?: string;
+  special?: "wild" | "skip";
+};
 type TableCard = DeckCard & { x: number; y: number; z: number; faceUp: boolean };
 
-function freshDeck(): DeckCard[] {
+function meaningLabel(rank: string, theme: string, unit: string): { text: string; special?: "wild" | "skip" } {
+  if (rank === "6" || rank === "12") return { text: "WILD", special: "wild" };
+  if (rank === "7" || rank === "10") return { text: "SKIP", special: "skip" };
+  if (rank === "A") return { text: `Main ${theme}` };
+  if (rank === "K") return { text: `Man (${theme})` };
+  if (rank === "Q") return { text: `Woman (${theme})` };
+  if (rank === "J") return { text: "Wild / Friend", special: "wild" };
+  return { text: `${rank} ${unit}` };
+}
+
+function freshDeck(type: DeckType): DeckCard[] {
   const deck: DeckCard[] = [];
   let id = 0;
-  SUITS.forEach((suit) => {
-    RANKS.forEach((rank) => {
-      deck.push({ id: id++, suit, rank });
+  if (type === "standard") {
+    STANDARD_SUITS.forEach((suit) => {
+      STANDARD_RANKS.forEach((rank) => {
+        deck.push({ id: id++, suit, rank });
+      });
     });
-  });
+  } else {
+    MEANING_SUITS.forEach((suit) => {
+      MEANING_RANKS.forEach((rank) => {
+        const m = meaningLabel(rank, suit.theme, suit.unit);
+        deck.push({ id: id++, suit, rank, meaning: m.text, special: m.special });
+      });
+    });
+  }
   return deck;
 }
 
@@ -48,9 +84,13 @@ function clamp(min: number, max: number, v: number) {
 
 function CardBack() {
   return (
-    <div className="w-full h-full rounded-lg bg-gradient-to-br from-indigo-700 to-indigo-900 border-2 border-indigo-400/40 flex flex-col items-center justify-center gap-1">
-      <div className="w-8 h-8 rounded-full border-2 border-indigo-300/50" />
-      <div className="text-indigo-200/70 text-[8px] font-bold tracking-[0.2em] uppercase">
+    <div className="w-full h-full rounded-lg bg-black border-2 border-amber-500/60 flex flex-col items-center justify-center gap-1 overflow-hidden">
+      <img
+        src="/dragon-logo.png"
+        alt="Vicious"
+        className="w-12 h-12 object-contain drop-shadow-[0_0_4px_rgba(212,175,55,0.6)]"
+      />
+      <div className="text-amber-400/80 text-[7px] font-bold tracking-[0.2em] uppercase">
         Vicious
       </div>
     </div>
@@ -59,20 +99,25 @@ function CardBack() {
 
 function Watermark() {
   return (
-    <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-      <span className="text-slate-300/40 text-[9px] font-extrabold tracking-[0.15em] uppercase -rotate-12">
-        Vicious
-      </span>
+    <div className="pointer-events-none absolute inset-0 flex items-center justify-center opacity-10">
+      <img src="/dragon-logo.png" alt="" className="w-14 h-14 object-contain" />
     </div>
   );
 }
 
 export default function CardDeckApp() {
   const [showSplash, setShowSplash] = useState(true);
-  const [deck, setDeck] = useState<DeckCard[]>(freshDeck);
+  const [deckType, setDeckType] = useState<DeckType>("standard");
+  const [deck, setDeck] = useState<DeckCard[]>(() => freshDeck("standard"));
   const [tableCards, setTableCards] = useState<TableCard[]>([]);
   const [isShuffling, setIsShuffling] = useState(false);
   const [deckPos, setDeckPos] = useState({ x: DECK_X, y: DECK_Y });
+  const [showDeckMenu, setShowDeckMenu] = useState(false);
+  const [dice1, setDice1] = useState<number | null>(null);
+  const [dice2, setDice2] = useState<number | null>(null);
+  const [isRollingDice, setIsRollingDice] = useState(false);
+  const [coinValue, setCoinValue] = useState<"Heads" | "Tails" | null>(null);
+  const [isFlippingCoin, setIsFlippingCoin] = useState(false);
   const zRef = useRef(1000);
   const boardRef = useRef<HTMLDivElement>(null);
 
@@ -99,6 +144,42 @@ export default function CardDeckApp() {
   const nextZ = () => {
     zRef.current += 1;
     return zRef.current;
+  };
+
+  const switchDeck = (type: DeckType) => {
+    setDeckType(type);
+    setDeck(freshDeck(type));
+    setTableCards([]);
+    setDeckPos({ x: DECK_X, y: DECK_Y });
+    zRef.current = 1000;
+    setShowDeckMenu(false);
+  };
+
+  const rollDice = () => {
+    setIsRollingDice(true);
+    let count = 0;
+    const interval = setInterval(() => {
+      setDice1(Math.floor(Math.random() * 6) + 1);
+      setDice2(Math.floor(Math.random() * 6) + 1);
+      count++;
+      if (count > 8) {
+        clearInterval(interval);
+        setIsRollingDice(false);
+      }
+    }, 80);
+  };
+
+  const flipCoin = () => {
+    setIsFlippingCoin(true);
+    let count = 0;
+    const interval = setInterval(() => {
+      setCoinValue(Math.random() < 0.5 ? "Heads" : "Tails");
+      count++;
+      if (count > 8) {
+        clearInterval(interval);
+        setIsFlippingCoin(false);
+      }
+    }, 80);
   };
 
   const shuffleDeck = () => {
@@ -129,7 +210,6 @@ export default function CardDeckApp() {
     setTableCards((cs) => cs.map((c) => (c.id === id ? { ...c, z } : c)));
   };
 
-  // ---- Table card drag (single already-drawn card) ----
   const handlePointerDown = (e: React.PointerEvent, card: TableCard) => {
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
     dragState.current = {
@@ -169,7 +249,6 @@ export default function CardDeckApp() {
     flipCard(card.id);
   };
 
-  // ---- Deck gestures: single click+hold = one card, double click+hold = whole stack ----
   const handleDeckPointerDown = (e: React.PointerEvent) => {
     if (deck.length === 0) return;
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
@@ -232,7 +311,7 @@ export default function CardDeckApp() {
   };
 
   const resetAll = () => {
-    setDeck(freshDeck());
+    setDeck(freshDeck(deckType));
     setTableCards([]);
     setDeckPos({ x: DECK_X, y: DECK_Y });
     zRef.current = 1000;
@@ -251,13 +330,18 @@ export default function CardDeckApp() {
     return (
       <div
         onClick={() => setShowSplash(false)}
-        className="min-h-screen w-full bg-gradient-to-br from-emerald-950 via-emerald-900 to-black flex flex-col items-center justify-center text-center px-6 cursor-pointer"
+        className="min-h-screen w-full bg-black flex flex-col items-center justify-center text-center px-6 cursor-pointer"
       >
+        <img
+          src="/dragon-logo.png"
+          alt="Vicious"
+          className="w-32 h-32 object-contain mb-4 drop-shadow-[0_0_20px_rgba(212,175,55,0.5)]"
+        />
         <h1 className="text-4xl sm:text-5xl font-extrabold tracking-[0.25em] text-amber-400 drop-shadow-lg mb-3">
-          VICIOUS DECK
+          VICIOUS
         </h1>
-        <p className="text-emerald-200 text-sm mb-10 animate-pulse">Tap anywhere to enter</p>
-        <div className="max-w-md text-emerald-400/60 text-[11px] leading-relaxed space-y-2">
+        <p className="text-amber-200/70 text-sm mb-10 animate-pulse">Tap anywhere to enter</p>
+        <div className="max-w-md text-amber-100/40 text-[11px] leading-relaxed space-y-2">
           <p>© 2026 Vicious Deck. All rights reserved.</p>
           <p>
             Licensed for personal use only. Unauthorized reproduction, distribution, or
@@ -270,40 +354,105 @@ export default function CardDeckApp() {
   }
 
   return (
-    <div className="min-h-screen w-full bg-gradient-to-br from-emerald-900 via-emerald-800 to-emerald-950 flex flex-col items-center py-6 px-4 font-sans">
-      <h1 className="text-2xl font-bold text-emerald-50 mb-1 tracking-tight">Card Deck</h1>
-      <p className="text-emerald-200 text-sm mb-4 text-center max-w-xl">
+    <div className="min-h-screen w-full bg-black flex flex-col items-center py-6 px-4 font-sans">
+      <div className="flex items-center gap-2 mb-1">
+        <img src="/dragon-logo.png" alt="" className="w-8 h-8 object-contain" />
+        <h1 className="text-2xl font-bold text-amber-400 tracking-tight">Vicious Deck</h1>
+      </div>
+      <p className="text-amber-100/60 text-sm mb-4 text-center max-w-xl">
         Click once & hold to drag a single card · Click twice & hold to drag the whole stack ·
         Double-click a card on the table to flip it
       </p>
 
-      <div className="flex flex-wrap items-center gap-3 mb-4 bg-emerald-950/40 backdrop-blur px-4 py-3 rounded-xl border border-emerald-700/50">
+      {deckType === "meaning" && (
+        <div className="flex flex-wrap items-center justify-center gap-4 mb-4 bg-neutral-900/70 backdrop-blur px-5 py-2.5 rounded-xl border border-amber-600/30 text-sm">
+          <span className="text-rose-500 font-semibold">♥ Love</span>
+          <span className="text-rose-500 font-semibold">♦ Hate</span>
+          <span className="text-neutral-200 font-semibold">♣ Trust</span>
+          <span className="text-neutral-200 font-semibold">♠ Money</span>
+        </div>
+      )}
+
+      <div className="relative z-20 flex flex-wrap items-center gap-3 mb-4 bg-neutral-900/70 backdrop-blur px-4 py-3 rounded-xl border border-amber-600/30">
+        <div className="relative z-30">
+          <button
+            onClick={() => setShowDeckMenu((v) => !v)}
+            className="bg-neutral-800 hover:bg-neutral-700 active:scale-95 transition text-amber-100 font-medium px-3 py-2 rounded-lg text-sm border border-amber-600/40 flex items-center gap-2"
+          >
+            {deckType === "standard" ? "Standard Deck" : "Meaning Deck"}
+            <span className="text-amber-400 text-xs">▾</span>
+          </button>
+          {showDeckMenu && (
+            <div className="absolute top-full left-0 mt-1 bg-neutral-900 border border-amber-600/40 rounded-lg shadow-xl overflow-hidden z-50 w-48">
+              <button
+                onClick={() => switchDeck("standard")}
+                className={`w-full text-left px-4 py-3 text-sm hover:bg-amber-500/10 transition ${
+                  deckType === "standard" ? "text-amber-400 font-semibold" : "text-amber-100/80"
+                }`}
+              >
+                Standard Deck
+                <div className="text-[10px] text-amber-100/40 font-normal">A–K, 4 suits</div>
+              </button>
+              <button
+                onClick={() => switchDeck("meaning")}
+                className={`w-full text-left px-4 py-3 text-sm hover:bg-amber-500/10 transition border-t border-amber-600/20 ${
+                  deckType === "meaning" ? "text-amber-400 font-semibold" : "text-amber-100/80"
+                }`}
+              >
+                Meaning Deck
+                <div className="text-[10px] text-amber-100/40 font-normal">Love / Hate / Trust / Money</div>
+              </button>
+            </div>
+          )}
+        </div>
         <button
           onClick={shuffleDeck}
           disabled={isShuffling}
-          className="bg-amber-400 hover:bg-amber-300 active:scale-95 transition text-emerald-950 font-semibold px-4 py-2 rounded-lg shadow disabled:opacity-60"
+          className="bg-amber-500 hover:bg-amber-400 active:scale-95 transition text-black font-semibold px-4 py-2 rounded-lg shadow disabled:opacity-60"
         >
           {isShuffling ? "Shuffling…" : "Shuffle deck"}
         </button>
         <button
           onClick={collectToDeck}
-          className="bg-emerald-700 hover:bg-emerald-600 active:scale-95 transition text-emerald-50 font-medium px-3 py-2 rounded-lg text-sm"
+          className="bg-neutral-800 hover:bg-neutral-700 active:scale-95 transition text-amber-100 font-medium px-3 py-2 rounded-lg text-sm border border-amber-600/20"
         >
           Collect cards
         </button>
         <button
           onClick={resetAll}
-          className="bg-emerald-700 hover:bg-emerald-600 active:scale-95 transition text-emerald-50 font-medium px-3 py-2 rounded-lg text-sm"
+          className="bg-neutral-800 hover:bg-neutral-700 active:scale-95 transition text-amber-100 font-medium px-3 py-2 rounded-lg text-sm border border-amber-600/20"
         >
           New deck
         </button>
-        <span className="text-emerald-200 text-sm font-mono">{deck.length} cards left</span>
+        <button
+          onClick={rollDice}
+          disabled={isRollingDice}
+          className="bg-neutral-800 hover:bg-neutral-700 active:scale-95 transition text-amber-100 font-medium px-3 py-2 rounded-lg text-sm border border-amber-600/20 flex items-center gap-2 disabled:opacity-60"
+        >
+          <span className="text-lg">{dice1 ? DICE_FACES[dice1 - 1] : "🎲"}</span>
+          <span className="text-lg">{dice2 ? DICE_FACES[dice2 - 1] : "🎲"}</span>
+          {isRollingDice
+            ? "Rolling…"
+            : dice1 && dice2
+            ? `Total ${dice1 + dice2}`
+            : "Roll dice"}
+        </button>
+        <button
+          onClick={flipCoin}
+          disabled={isFlippingCoin}
+          className="bg-neutral-800 hover:bg-neutral-700 active:scale-95 transition text-amber-100 font-medium px-3 py-2 rounded-lg text-sm border border-amber-600/20 flex items-center gap-2 disabled:opacity-60"
+        >
+          <span className="text-lg">🪙</span>
+          {isFlippingCoin ? "Flipping…" : coinValue ? coinValue : "Flip coin"}
+        </button>
+        <span className="text-amber-200/70 text-sm font-mono">{deck.length} cards left</span>
       </div>
 
       <div
         ref={boardRef}
         onPointerMove={handlePointerMove}
-        className="relative bg-emerald-800/60 rounded-2xl border-4 border-emerald-700 shadow-2xl touch-none"
+        onClick={() => showDeckMenu && setShowDeckMenu(false)}
+        className="relative z-10 bg-neutral-950 rounded-2xl border-4 border-amber-600/40 shadow-2xl touch-none"
         style={{ width: BOARD_W, height: BOARD_H, maxWidth: "95vw" }}
       >
         {deck.length > 0 && (
@@ -336,7 +485,7 @@ export default function CardDeckApp() {
         )}
         {deck.length === 0 && (
           <div
-            className="absolute rounded-lg border-2 border-dashed border-emerald-500/50 flex items-center justify-center text-emerald-400 text-xs"
+            className="absolute rounded-lg border-2 border-dashed border-amber-600/40 flex items-center justify-center text-amber-500/60 text-xs"
             style={{ left: deckPos.x, top: deckPos.y, width: CARD_W, height: CARD_H }}
           >
             empty
@@ -357,15 +506,31 @@ export default function CardDeckApp() {
               title="Hold & drag to move · double-click to flip"
             >
               {card.faceUp ? (
-                <div className="relative w-full h-full bg-white rounded-lg ring-1 ring-slate-300 flex flex-col justify-between p-1.5 overflow-hidden">
+                <div
+                  className={`relative w-full h-full rounded-lg ring-2 flex flex-col justify-between p-1.5 overflow-hidden ${
+                    card.special === "wild"
+                      ? "bg-amber-100 ring-amber-500"
+                      : card.special === "skip"
+                      ? "bg-neutral-300 ring-neutral-500"
+                      : "bg-white ring-amber-500/60"
+                  }`}
+                >
                   <Watermark />
                   <div className={`relative text-sm font-bold leading-none ${card.suit.color}`}>
                     {card.rank}
                     <div className="text-xs">{card.suit.symbol}</div>
                   </div>
-                  <div className={`relative self-center text-2xl ${card.suit.color}`}>
-                    {card.suit.symbol}
-                  </div>
+                  {deckType === "meaning" ? (
+                    <div className="relative self-center text-center px-1">
+                      <div className={`text-[13px] font-bold leading-tight ${card.suit.color}`}>
+                        {card.meaning}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className={`relative self-center text-2xl ${card.suit.color}`}>
+                      {card.suit.symbol}
+                    </div>
+                  )}
                   <div
                     className={`relative text-sm font-bold leading-none self-end rotate-180 ${card.suit.color}`}
                   >
@@ -380,10 +545,10 @@ export default function CardDeckApp() {
           ))}
       </div>
 
-      <p className="text-emerald-300 text-xs mt-3">
+      <p className="text-amber-200/60 text-xs mt-3">
         {tableCards.length} card{tableCards.length !== 1 ? "s" : ""} on the table
       </p>
-      <p className="text-emerald-500/50 text-[10px] mt-2">© 2026 Vicious Deck — All rights reserved.</p>
+      <p className="text-amber-500/40 text-[10px] mt-2">© 2026 Vicious Deck — All rights reserved.</p>
     </div>
   );
 }
